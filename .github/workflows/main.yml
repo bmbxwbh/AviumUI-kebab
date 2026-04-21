@@ -10,48 +10,29 @@ jobs:
       contents: write
 
     steps:
-      - name: 🧹 ULTRA AGGRESSIVE Disk Cleanup (28GB+ free)
+      - name: 🧹 安全清理空间（不报错版）
         run: |
-          # 1. 删除所有预装软件和工具
-          sudo apt-get purge -y --auto-remove \
-            azure-cli google-chrome-stable firefox \
-            microsoft-edge-stable powershell dotnet* \
-            php* mysql* postgresql* mongodb* redis* \
-            openjdk-* temurin-* adoptopenjdk-* \
-            nodejs npm yarn golang-go rustc cargo \
-            docker-ce docker-ce-cli containerd.io \
-            kubectl helm terraform ansible
-
-          # 2. 删除所有Docker镜像和容器
-          docker system prune -a -f --volumes
-
-          # 3. 删除所有APT缓存和临时文件
+          sudo docker system prune -a -f --volumes
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
           sudo rm -rf /tmp/* /var/tmp/*
-
-          # 4. 删除GitHub工具缓存
           sudo rm -rf /opt/hostedtoolcache/*
-
-          # 5. 删除Swap文件（释放8GB）
           sudo swapoff -a
-          sudo rm -f /swapfile
-
-          # 6. 显示最终可用空间
-          echo "✅ 清理完成，当前可用空间："
+          echo "✅ 清理完成"
           df -h /
 
-      - name: 📦 Install dependencies (fixed for Ubuntu 24.04)
+      - name: 📦 安装依赖（Ubuntu 24.04 兼容）
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
-            git-core gnupg flex bison build-essential zip curl zlib1g-dev \
-            libc6-dev-i386 libncurses5-dev lib32ncurses-dev x11proto-core-dev \
-            libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc \
+            git gnupg flex bison build-essential zip curl \
+            zlib1g-dev libc6-dev-i386 libncurses5-dev \
+            lib32ncurses-dev x11proto-core-dev libx11-dev \
+            lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc \
             unzip fontconfig python3 python3-pip python-is-python3 \
             libssl-dev liblz4-tool rsync wget jq golang patch
 
-      - name: 🛠️ Setup repo
+      - name: 🛠️ 配置 repo
         run: |
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -59,16 +40,14 @@ jobs:
           echo "PATH=$HOME/bin:$PATH" >> $GITHUB_ENV
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          git config --global core.compression 9
-          git config --global http.postBuffer 524288000
 
-      - name: 📥 Init AviumUI
+      - name: 📥 初始化 AviumUI 源码
         run: |
           mkdir avium
           cd avium
           repo init -u https://github.com/AviumUI/android_manifests -b avium-16.2 --git-lfs --depth=1
 
-      - name: 📝 Add local manifests
+      - name: 📝 设备树配置（Lineage 官方）
         run: |
           cd avium
           mkdir -p .repo/local_manifests
@@ -81,24 +60,12 @@ jobs:
           </manifest>
           EOF
 
-      - name: 🔄 Optimized repo sync (minimal download)
+      - name: 🔄 同步源码
         run: |
           cd avium
-          # 只同步必要的代码，跳过所有无用的预编译文件和文档
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1 \
-            --exclude=platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
-            --exclude=platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
-            --exclude=platform/prebuilts/gcc/linux-x86/x86/x86_64-linux-android-4.9 \
-            --exclude=platform/prebuilts/gdb \
-            --exclude=platform/prebuilts/perfetto \
-            --exclude=platform/external/chromium-webview \
-            --exclude=platform/external/google-fonts \
-            --exclude=platform/external/noto-fonts \
-            --exclude=platform/docs \
-            --exclude=platform/art/test \
-            --exclude=platform/frameworks/base/tests
+          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1
 
-      - name: 🧩 Integrate latest official KernelSU
+      - name: 🧩 集成官方最新 KernelSU
         run: |
           cd avium/kernel/oneplus/sm8250
           git clone https://github.com/tiann/KernelSU.git --depth=1
@@ -108,30 +75,30 @@ jobs:
           KSUV=$(grep KSU_VERSION KernelSU/kernel/version.h | awk '{print $3}')
           echo "KSU_VERSION=$KSUV" >> $GITHUB_ENV
 
-      - name: 📥 Get vendor & odm from LineageOS official
+      - name: 📥 从 Lineage 官方获取 vendor
         run: |
           cd avium
           LATEST_URL=$(curl -s https://download.lineageos.org/api/v2/kebab/builds | jq -r '.response[0].url')
-          curl -r 0-1048576 -o payload.bin "$LATEST_URL"
           git clone https://github.com/ssut/payload-dumper-go.git
           cd payload-dumper-go && go build
+          curl -r 0-1048576 -o ../payload.bin "$LATEST_URL"
           ./payload-dumper-go -l ../payload.bin > parts.txt
           VO=$(awk '/vendor/{getline;print $2}' parts.txt)
           VS=$(awk '/vendor/{getline;getline;print $2}' parts.txt)
           OO=$(awk '/odm/{getline;print $2}' parts.txt)
           OS=$(awk '/odm/{getline;getline;print $2}' parts.txt)
-          curl -r $VO-$((VO+VS-1)) -o vendor.img "$LATEST_URL"
-          curl -r $OO-$((OO+OS-1)) -o odm.img "$LATEST_URL"
+          curl -r $VO-$((VO+VS-1)) -o ../vendor.img "$LATEST_URL"
+          curl -r $OO-$((OO+OS-1)) -o ../odm.img "$LATEST_URL"
           mkdir -p /mnt/v /mnt/o
-          sudo mount -o loop vendor.img /mnt/v
-          sudo mount -o loop odm.img /mnt/o
+          sudo mount -o loop ../vendor.img /mnt/v
+          sudo mount -o loop ../odm.img /mnt/o
           cd ../device/oneplus/kebab
           ./extract-files.py /mnt
           sudo umount /mnt/v /mnt/o
           cd ../../..
           rm -rf payload-dumper-go payload.bin vendor.img odm.img parts.txt
 
-      - name: ⚙️ Apply your config
+      - name: ⚙️ 你的配置：GMS+隐藏BL+模糊+维护者bmbxwbh
         run: |
           cd avium
           cat >> device/oneplus/kebab/lineage_kebab.mk << 'EOF'
@@ -143,7 +110,7 @@ jobs:
           AVIUM_FORCE_SET_FAKE_PROP := true
           EOF
 
-      - name: 🏗️ Build
+      - name: 🏗️ 开始编译
         run: |
           cd avium
           source build/envsetup.sh
@@ -154,7 +121,7 @@ jobs:
           ROM=$(ls out/target/product/kebab/AviumUI-*.zip)
           echo "ROM_PATH=$ROM" >> $GITHUB_ENV
 
-      - name: 🚀 Auto release to GitHub
+      - name: 🚀 自动发布到 GitHub Releases（永久下载）
         uses: softprops/action-gh-release@v2
         with:
           tag_name: avium-kebab-${{ env.BUILD_DATE }}-${{ github.run_number }}
@@ -172,4 +139,5 @@ jobs:
             $(dirname ${{ env.ROM_PATH }})/boot.img
             $(dirname ${{ env.ROM_PATH }})/dtbo.img
             $(dirname ${{ env.ROM_PATH }})/vbmeta.img
+
 
