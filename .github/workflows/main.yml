@@ -10,16 +10,36 @@ jobs:
       contents: write
 
     steps:
-      - name: 🧹 Free disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: false
-          docker-images: false
-          swap-storage: false
+      - name: 🧹 ULTRA AGGRESSIVE Disk Cleanup (28GB+ free)
+        run: |
+          # 1. 删除所有预装软件和工具
+          sudo apt-get purge -y --auto-remove \
+            azure-cli google-chrome-stable firefox \
+            microsoft-edge-stable powershell dotnet* \
+            php* mysql* postgresql* mongodb* redis* \
+            openjdk-* temurin-* adoptopenjdk-* \
+            nodejs npm yarn golang-go rustc cargo \
+            docker-ce docker-ce-cli containerd.io \
+            kubectl helm terraform ansible
+
+          # 2. 删除所有Docker镜像和容器
+          docker system prune -a -f --volumes
+
+          # 3. 删除所有APT缓存和临时文件
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          sudo rm -rf /tmp/* /var/tmp/*
+
+          # 4. 删除GitHub工具缓存
+          sudo rm -rf /opt/hostedtoolcache/*
+
+          # 5. 删除Swap文件（释放8GB）
+          sudo swapoff -a
+          sudo rm -f /swapfile
+
+          # 6. 显示最终可用空间
+          echo "✅ 清理完成，当前可用空间："
+          df -h /
 
       - name: 📦 Install dependencies (fixed for Ubuntu 24.04)
         run: |
@@ -39,6 +59,8 @@ jobs:
           echo "PATH=$HOME/bin:$PATH" >> $GITHUB_ENV
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          git config --global core.compression 9
+          git config --global http.postBuffer 524288000
 
       - name: 📥 Init AviumUI
         run: |
@@ -59,10 +81,22 @@ jobs:
           </manifest>
           EOF
 
-      - name: 🔄 Sync sources
+      - name: 🔄 Optimized repo sync (minimal download)
         run: |
           cd avium
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+          # 只同步必要的代码，跳过所有无用的预编译文件和文档
+          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --depth=1 \
+            --exclude=platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
+            --exclude=platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 \
+            --exclude=platform/prebuilts/gcc/linux-x86/x86/x86_64-linux-android-4.9 \
+            --exclude=platform/prebuilts/gdb \
+            --exclude=platform/prebuilts/perfetto \
+            --exclude=platform/external/chromium-webview \
+            --exclude=platform/external/google-fonts \
+            --exclude=platform/external/noto-fonts \
+            --exclude=platform/docs \
+            --exclude=platform/art/test \
+            --exclude=platform/frameworks/base/tests
 
       - name: 🧩 Integrate latest official KernelSU
         run: |
@@ -138,3 +172,4 @@ jobs:
             $(dirname ${{ env.ROM_PATH }})/boot.img
             $(dirname ${{ env.ROM_PATH }})/dtbo.img
             $(dirname ${{ env.ROM_PATH }})/vbmeta.img
+
