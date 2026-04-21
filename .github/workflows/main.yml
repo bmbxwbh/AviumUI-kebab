@@ -1,4 +1,4 @@
-name: Build AviumUI 16.2 for OnePlus 8T (kebab)
+name: 编译 AviumUI 16.2 适用于一加 8T (kebab)
 on:
   workflow_dispatch:
 
@@ -10,7 +10,7 @@ jobs:
       contents: write
 
     steps:
-      - name: Clean up disk space
+      - name: 清理磁盘空间
         run: |
           sudo rm -rf /usr/share/dotnet /usr/share/swift /usr/local/lib/android
           sudo rm -rf /usr/lib/jvm/* /opt/hostedtoolcache/* /var/lib/docker
@@ -19,7 +19,7 @@ jobs:
           sudo swapoff -a
           df -h /
 
-      - name: Install dependencies
+      - name: 安装依赖包
         run: |
           sudo apt update -y
           sudo apt install -y git gnupg flex bison build-essential zip curl \
@@ -28,7 +28,7 @@ jobs:
             libxml2-utils xsltproc unzip python3 python3-pip python-is-python3 \
             libssl-dev liblz4-tool rsync wget jq golang patch
 
-      - name: Setup repo
+      - name: 配置 repo 工具
         run: |
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -37,13 +37,13 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: Initialize AviumUI
+      - name: 初始化 AviumUI 源码
         run: |
           mkdir avium
           cd avium
           repo init -u https://github.com/AviumUI/android_manifests -b avium-16.2 --git-lfs --depth=1
 
-      - name: Add local manifests
+      - name: 添加本地配置清单
         run: |
           cd avium
           mkdir -p .repo/local_manifests
@@ -60,22 +60,22 @@ jobs:
 
   <project name="LineageOS/android_device_oneplus_kebab" path="device/oneplus/kebab" remote="github" revision="lineage-23.2" />
   <project name="LineageOS/android_device_oneplus_sm8250-common" path="device/oneplus/sm8250-common" remote="github" revision="lineage-23.2" />
-  <project name="LineageOS/android_kernel_oneplus_sm8250" path="kernel/oneplus/sm8250" remote="github" revision="lineage-23.2" />
+  < remote="github" revision="lineage-23.2" />
 </manifest>
 EOF
 
-      - name: Sync sources
+      - name: 同步源码
         run: |
           cd avium
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
-      - name: Download official Clang prebuilt
+      - name: 下载官方 Clang 预编译包
         run: |
           cd avium
           mkdir -p prebuilts/clang/host/linux-x86
           curl -L https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/android-16.0.0_r10/clang-r536225.tar.gz | tar -xzf - -C prebuilts/clang/host/linux-x86
 
-      - name: Integrate KernelSU
+      - name: 集成 KernelSU
         run: |
           cd avium/kernel/oneplus/sm8250
           git clone https://github.com/tiann/KernelSU.git --depth=1
@@ -85,7 +85,7 @@ EOF
           KSUV=$(grep KSU_VERSION KernelSU/kernel/version.h | awk '{print $3}')
           echo "KSU_VERSION=$KSUV" >> $GITHUB_ENV
 
-      - name: Extract vendor from LineageOS
+      - name: 从 LineageOS 提取厂商驱动
         run: |
           cd avium
           LATEST_URL=$(curl -s https://download.lineageos.org/api/v2/kebab/builds | jq -r '.response[0].url')
@@ -108,7 +108,7 @@ EOF
           cd ../../..
           rm -rf payload-dumper-go payload.bin vendor.img odm.img parts.txt
 
-      - name: Apply custom config
+      - name: 应用自定义配置
         run: |
           cd avium
           cat >> device/oneplus/kebab/lineage_kebab.mk <<'EOF'
@@ -121,29 +121,30 @@ AVIUM_FORCE_SET_FAKE_PROP := true
 TARGET_NO_DEBUG_SYMBOLS := true
 EOF
 
-      - name: Build ROM
+      - name: 开始编译 ROM
         run: |
           cd avium
           source build/envsetup.sh
           lunch lineage_kebab-bp4a-userdebug
           make bacon -j$(nproc --all)
-          echo "BUILD_DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+          BUILD_DATE=$(date +%Y%m%d)
+          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
           ROM=$(ls out/target/product/kebab/AviumUI-*.zip)
           echo "ROM_PATH=$ROM" >> $GITHUB_ENV
 
-      - name: Upload to GitHub Release
+      - name: 上传到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: avium-kebab-${{ env.BUILD_DATE }}-${{ github.run_number }}
-          name: AviumUI 16.2 kebab ${{ env.BUILD_DATE }}
+          name: AviumUI 16.2 一加 8T ${{ env.BUILD_DATE }}
           body: |
-            ✅ Device: OnePlus 8T (kebab)
-            ✅ Version: AviumUI 16.2
-            ✅ Maintainer: bmbxwbh
-            ✅ GMS built-in
-            ✅ Hide Bootloader
-            ✅ Blur enabled
-            ✅ KernelSU: ${{ env.KSU_VERSION }}
+            ✅ 设备：一加 8T (kebab)
+            ✅ 版本：AviumUI 16.2
+            ✅ 维护者：bmbxwbh
+            ✅ 内置 GMS
+            ✅ 开启模糊效果
+            ✅ 隐藏 Bootloader
+            ✅ KernelSU 版本：${{ env.KSU_VERSION }}
           files: |
             ${{ env.ROM_PATH }}
             $(dirname ${{ env.ROM_PATH }})/boot.img
